@@ -31,6 +31,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "cursor_type.h"
 #include "utflib.h"
 
+// -1 means follow host_lowmemorymode. A port with memory to spare for the
+// menu but not for the engine's limits overrides this at build time.
+#ifndef MAINUI_LOWMEMORY_DEFAULT
+#define MAINUI_LOWMEMORY_DEFAULT "-1"
+#endif
+
+
 cvar_t		*ui_showmodels;
 cvar_t		*ui_show_window_stack;
 cvar_t		*ui_borderclip;
@@ -1164,7 +1171,19 @@ void UI_Init( void )
 	g_FontMgr = new CFontManager();
 
 	uiStatic.initialized = true;
+
+	// host_lowmemorymode is really two things at once: how tight the engine's
+	// limits are, and whether the menu can afford its artwork. Those come
+	// apart on a console with a second memory arena - the Wii keeps the heap
+	// in MEM2, where a background bitmap costs nothing, while the engine
+	// still wants the reduced limits. ui_lowmemory lets a port say so.
 	uiStatic.lowmemory = (int)EngFuncs::GetCvarFloat( "host_lowmemorymode" );
+	{
+		cvar_t *ui_lowmemory = EngFuncs::CvarRegister( "ui_lowmemory", MAINUI_LOWMEMORY_DEFAULT, FCVAR_ARCHIVE );
+
+		if( ui_lowmemory && ui_lowmemory->value >= 0.0f )
+			uiStatic.lowmemory = (int)ui_lowmemory->value;
+	}
 
 	// setup game info
 	gameinfo2_t *gi = EngFuncs::GetGameInfo();
