@@ -581,6 +581,13 @@ void CMenuGameListModel::Update( void )
 
 void CMenuGameListModel::OnActivateEntry( int line )
 {
+	// wii: la lista se limpia al cambiar de tab/filtro (RemoveAll en
+	// ServerBrowser.cpp), pero el indice del UI queda apuntando al slot
+	// viejo. Sin este check, servers[line] lee fuera del vector y el
+	// struct copy de Connect() crashea.
+	if( line < 0 || line >= servers.Count() )
+		return;
+
 	CMenuServerBrowser::Connect( servers[line] );
 }
 
