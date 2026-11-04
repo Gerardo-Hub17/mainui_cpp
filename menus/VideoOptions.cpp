@@ -24,6 +24,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "Slider.h"
 #include "CheckBox.h"
 #include "YesNoMessageBox.h"
+#include "SpinControl.h"
+#include "StringArrayModel.h"
 
 #define ART_BANNER	  	"gfx/shell/head_vidoptions"
 #define ART_GAMMA		"gfx/shell/gamma"
@@ -36,9 +38,10 @@ private:
 	void _Init() override;
 	void _VidInit() override;
 	void Reload() override;
+	void Draw() override;
 
 public:
-	CMenuVidOptions() : CMenuFramework( "CMenuVidOptions" ) { }
+	CMenuVidOptions() : CMenuFramework( "CMenuVidOptions" ), isGX( false ) { }
 	void SaveAndPopMenu() override;
 	void UpdateConfig();
 	void GetConfig();
@@ -63,6 +66,12 @@ public:
 	CMenuCheckBox	filtering;
 	CMenuCheckBox	detailtex;
 	CMenuCheckBox	hudscale;
+
+	// Wii: TV aspect ratio and HUD margins (engine cvars wii_aspect, hud_margin_x/y)
+	bool		isGX;
+	CMenuSpinControl	aspect;
+	CMenuSlider	marginX;
+	CMenuSlider	marginY;
 	CMenuYesNoMessageBox	msgBox;
 
 	HIMAGE		hTestImage;
@@ -106,6 +115,12 @@ void CMenuVidOptions::SaveAndPopMenu( void )
 	overbright.WriteCvar();
 	filtering.WriteCvar();
 	hudscale.WriteCvar();
+	if( isGX )
+	{
+		aspect.WriteCvar();
+		marginX.WriteCvar();
+		marginY.WriteCvar();
+	}
 	// gamma and brightness is already written
 
 	CMenuFramework::SaveAndPopMenu();
@@ -156,11 +171,49 @@ void CMenuVidOptions::CMenuVidPreview::Draw( )
 
 /*
 =================
+CMenuVidOptions::Draw
+
+Shows where the HUD will end up for the current margins. The game HUD is not
+drawn behind the menu, so outline the inset screen area instead.
+=================
+*/
+void CMenuVidOptions::Draw( void )
+{
+	CMenuFramework::Draw();
+
+	if( !isGX )
+		return;
+
+	float mx = marginX.GetCurrentValue() * 0.01f;
+	float my = marginY.GetCurrentValue() * 0.01f;
+
+	if( mx <= 0.0f && my <= 0.0f )
+		return;
+
+	int x = (int)( gpGlobals->scrWidth * mx );
+	int y = (int)( gpGlobals->scrHeight * my );
+
+	UI_DrawRectangleExt( x, y, gpGlobals->scrWidth - x * 2, gpGlobals->scrHeight - y * 2, 0xFFFFFF00, outlineWidth );
+}
+
+/*
+=================
 CMenuVidOptions::Init
 =================
 */
 void CMenuVidOptions::_Init( void )
 {
+	static const char *aspectStr[] =
+	{
+		L( "Auto (Wii settings)" ),
+		L( "4:3" ),
+		L( "16:9" ),
+	};
+	static CStringArrayModel aspectModel( aspectStr, V_ARRAYSIZE( aspectStr ));
+
+	// the Wii renderer ignores the OpenGL-only options, hide them to make room
+	isGX = !strnicmp( EngFuncs::GetCvarString( "r_refdll_loaded" ), "gx", 2 );
+
 	hTestImage = EngFuncs::PIC_Load( ART_GAMMA, PIC_KEEP_SOURCE | PIC_EXPAND_SOURCE );
 
 	banner.SetPicture( ART_BANNER );
@@ -201,28 +254,54 @@ void CMenuVidOptions::_Init( void )
 	height += 60;
 
 	detailtex.szName = L( "Detail textures" );
-	detailtex.SetCoord( 72, height );
-	height += 50;
-
 	vbo.szName = L( "Use VBO" );
-	vbo.SetCoord( 72, height );
-	height += 50;
-
 	swwater.szName = L( "Water ripples" );
-	swwater.SetCoord( 72, height );
-	height += 50;
-
 	overbright.szName = L( "Overbrights" );
-	overbright.SetCoord( 72, height );
-	height += 50;
-
 	filtering.szName = L( "Texture filtering" );
-	filtering.SetCoord( 72, height );
-	height += 50;
+
+	if( !isGX )
+	{
+		detailtex.SetCoord( 72, height );
+		height += 50;
+
+		vbo.SetCoord( 72, height );
+		height += 50;
+
+		swwater.SetCoord( 72, height );
+		height += 50;
+
+		overbright.SetCoord( 72, height );
+		height += 50;
+
+		filtering.SetCoord( 72, height );
+		height += 50;
+	}
 
 	hudscale.szName = L( "Auto scale HUD" );
 	hudscale.SetCoord( 72, height );
 	height += 50;
+
+	if( isGX )
+	{
+		aspect.szName = L( "Aspect ratio" );
+		aspect.Setup( &aspectModel );
+		aspect.SetRect( 72, height, 300, 32 );
+		aspect.SetCharSize( QM_SMALLFONT );
+		aspect.onChanged = CMenuEditable::WriteCvarCb; // applies right away
+		height += 60;
+
+		marginX.szName = L( "HUD margin: sides (%)" );
+		marginX.SetCoord( 72, height );
+		marginX.Setup( 0.0f, 20.0f, 1.0f );
+		marginX.onChanged = CMenuEditable::WriteCvarCb;
+		height += 60;
+
+		marginY.szName = L( "HUD margin: top/bottom (%)" );
+		marginY.SetCoord( 72, height );
+		marginY.Setup( 0.0f, 20.0f, 1.0f );
+		marginY.onChanged = CMenuEditable::WriteCvarCb;
+		height += 60;
+	}
 
 	msgBox.SetMessage( L( "^1WARNING: This is an experimental option and turning it on might break mods!^7\n\nReload the game or reconnect to the server to apply the settings."));
 	msgBox.onNegative.pExtra = &hudscale;
@@ -277,12 +356,21 @@ void CMenuVidOptions::_Init( void )
 #endif
 	AddItem( gammaIntensity );
 	AddItem( brightness );
-	AddItem( detailtex );
-	AddItem( vbo );
-	AddItem( swwater );
-	AddItem( overbright );
-	AddItem( filtering );
+	if( !isGX )
+	{
+		AddItem( detailtex );
+		AddItem( vbo );
+		AddItem( swwater );
+		AddItem( overbright );
+		AddItem( filtering );
+	}
 	AddItem( hudscale );
+	if( isGX )
+	{
+		AddItem( aspect );
+		AddItem( marginX );
+		AddItem( marginY );
+	}
 	AddItem( testImage );
 
 #if LEGACY_VIEWSIZE
@@ -298,6 +386,13 @@ void CMenuVidOptions::_Init( void )
 	overbright.LinkCvar( "gl_overbright" );
 	// skip filtering.LinkCvar, different names in ref_gl and ref_soft
 	hudscale.LinkCvar( "hud_scale" );
+
+	if( isGX )
+	{
+		aspect.LinkCvar( "wii_aspect", CMenuEditable::CVAR_VALUE );
+		marginX.LinkCvar( "hud_margin_x" );
+		marginY.LinkCvar( "hud_margin_y" );
+	}
 }
 
 void CMenuVidOptions::_VidInit()
